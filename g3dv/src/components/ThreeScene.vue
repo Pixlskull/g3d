@@ -98,6 +98,8 @@ export default {
         screenshot: null,
         showAll: false,
         displayLabels: true,
+        highlight: false,
+        highlightIndex: null,
         selectedMeshChrom: null,
         previousSelected: null,
         unSelectMesh: null
@@ -222,6 +224,12 @@ export default {
         .add(this.params, 'showAll')
         .name('Show all')
         .onChange(() => this.toggleAllMode())
+      if (!this.params.showAll) {
+        this.gui
+          .add(this.params, 'highlight')
+          .name("Highlight input region")
+          .onChange(() => this.toggleHighlightMode())
+      }
       const folderGeometry = this.gui.addFolder('Regions')
       if (this.params.showAll) {
         Object.keys(this.splines).forEach(chrom => {
@@ -262,10 +270,15 @@ export default {
           .add(this.params, 'lineWidth', 1, 10)
           .onChange(() => this.addAllShapes(this.params))
       } else {
-        this.params.color = this.meshMaterial.color.getStyle()
-
+        // this.params.color = this.meshMaterial.color.getStyle()
+        this.params.color = this.getMeshMaterialColor();
         folderGeometry.add(this.params, 'region', chroms).onChange(() => {
-          this.addShapes(this.params)
+          console.log("region changed")
+          if (this.params.highlight) {
+            this.addHighlightShapes(this.params)
+          } else {
+            this.addShapes(this.params)
+          }
         })
         folderGeometry.open()
 
@@ -273,7 +286,8 @@ export default {
           .addColor(this.params, 'color')
           .listen()
           .onChange(e => {
-            this.meshMaterial.color.setStyle(e)
+            // this.meshMaterial.color.setStyle(e)
+            this.setMeshMaterialColor(e)
             this.mesh.children[0].element.style.color = e
           })
         this.gui
@@ -376,13 +390,15 @@ export default {
         })
       } else {
         if (this.params.selectedMeshChrom) {
-          this.mesh.material.color.set(0xffff00)
+          // this.mesh.material.color.set(0xffff00)
+          this.setMeshMaterialColor("yellow")
           this.mesh.scale.set(1.1, 1.1, 1.1)
           this.mesh.children[0].element.style.color = '#ffff00'
         } else {
           if (this.params.previousSelected) {
             const color = this.splines[this.params.region].color
-            this.mesh.material.color.setStyle(color)
+            // this.mesh.material.color.setStyle(color)
+            this.setMeshMaterialColor(color)
             this.mesh.scale.set(1, 1, 1)
             this.mesh.children[0].element.style.color = color
           }
@@ -450,7 +466,6 @@ export default {
         this.params.animationView ? this.splineCamera : this.camera
       )
       this.labelRenderer.render(this.scene, this.camera)
-
       this.stats.end()
     },
     onWindowResize() {
@@ -495,8 +510,22 @@ export default {
         this.updateGui()
       } else {
         this.clearAllMeshes()
-        this.addShapes(this.params)
+        if (this.params.highlight) {
+          this.addHighlightShapes(this.params)
+        } else {
+          this.addShapes(this.params)
+        }
         this.updateGui()
+      }
+    },
+    toggleHighlightMode() {
+      this.clearLabelDiv()
+      this.clearSingleMesh()
+      if (this.params.highlight) {
+        this.addHighlightShapes(this.params)
+      } else {
+        this.params.highlightIndex = null
+        this.addShapes(this.params)
       }
     },
     addAllShapes(params) {
@@ -544,6 +573,45 @@ export default {
       })
     },
     addShapes(params) {
+      this.clearSingleMesh()
+      this.clearLabelDiv()
+      this.params.selectedMeshChrom = null
+      const { region } = params
+      const extrudePath = this.splines[region].spline
+      this.meshGeometry = new THREE.TubeBufferGeometry(
+        extrudePath,
+        2000,
+        0.2,
+        8,
+        false
+      )
+      this.meshGeometry.addGroup(0, Infinity, 0)
+      this.meshMaterial = [
+        new THREE.MeshBasicMaterial({
+          color: this.splines[params.region].color
+        })
+      ]
+      this.mesh = new THREE.Mesh(this.meshGeometry, this.meshMaterial)
+      // add label
+      const labelDiv = document.createElement('div')
+      labelDiv.className = 'label'
+      labelDiv.textContent = region
+      labelDiv.style.marginTop = '-1em'
+      labelDiv.style.color = this.splines[params.region].color
+      const label = new CSS2DObject(labelDiv)
+      label.position.copy(extrudePath.getPoint(0))
+      this.mesh.add(label)
+      this.parent.add(this.mesh)
+      labelDiv.addEventListener(
+        'click',
+        () => {
+          this.params.previousSelected = this.params.selectedMeshChrom
+          this.params.selectedMeshChrom = params.region
+        },
+        false
+      )
+    },
+    addHighlightShapes(params) {
       // clearScene(this.scene)
       this.clearSingleMesh()
       this.clearLabelDiv()
@@ -557,9 +625,71 @@ export default {
         8,
         false
       )
-      this.meshMaterial = new THREE.MeshBasicMaterial({
-        color: this.splines[params.region].color
-      })
+      const verticesCount = this.meshGeometry.getIndex().count
+      const chrStart = 60000
+      const chrEnd = 159000000
+      const totalBP = chrEnd - chrStart
+      //The geometry groups need to start on a multiple of 3
+      const highlightStart =
+        Math.floor((verticesCount * (27053397 - chrStart)) / totalBP / 3) * 3
+      const highlightEnd =
+        Math.floor((verticesCount * (27373765 - chrStart)) / totalBP / 3) * 3
+      if (
+        highlightEnd <= highlightStart ||
+        (highlightStart && highlightEnd <= 0) ||
+        (highlightStart && highlightEnd >= verticesCount)
+      ) {
+        this.meshMaterial = [
+          new THREE.MeshBasicMaterial({
+            color: this.splines[params.region].color
+          })
+        ]
+        this.params.highlightIndex = null
+      } else if (highlightStart <= 0) {
+        this.meshGeometry.addGroup(0, highlightEnd, 0)
+        this.meshGeometry.addGroup(highlightEnd, verticesCount, 1)
+        this.meshMaterial = [
+          new THREE.MeshBasicMaterial({
+            color: "yellow"
+          }),
+          new THREE.MeshBasicMaterial({
+            color: this.splines[params.region].color
+          })
+        ]
+        this.params.highlightIndex = 0
+      } else if (highlightEnd >= verticesCount) {
+        this.meshGeometry.addGroup(0, highlightStart, 0)
+        this.meshGeometry.addGroup(highlightStart, verticesCount, 1)
+        this.meshMaterial = [
+          new THREE.MeshBasicMaterial({
+            color: this.splines[params.region].color
+          }),
+          new THREE.MeshBasicMaterial({
+            color: "yellow"
+          })
+        ]
+        this.params.highlightIndex = 1
+      } else {
+        //console.log(this.splines[params.region].color)
+        this.meshGeometry.addGroup(0, highlightStart, 0)
+        this.meshGeometry.addGroup(highlightStart, highlightEnd, 1)
+        this.meshGeometry.addGroup(highlightEnd, verticesCount, 2)
+        this.meshMaterial = [
+          new THREE.MeshBasicMaterial({
+            color: this.splines[params.region].color
+          }),
+          new THREE.MeshBasicMaterial({
+            color: "yellow"
+          }),
+          new THREE.MeshBasicMaterial({
+            color: this.splines[params.region].color
+          })
+        ]
+        this.params.highlightIndex = 1
+      }
+      // this.meshMaterial = new THREE.MeshBasicMaterial({
+      //   color: this.splines[params.region].color
+      // })
       this.mesh = new THREE.Mesh(this.meshGeometry, this.meshMaterial)
       // add label
       const labelDiv = document.createElement('div')
@@ -603,6 +733,19 @@ export default {
           this.scene.remove(mesh)
           this.disposeMesh(mesh)
         })
+      }
+    },
+    getMeshMaterialColor() {
+      return this.params.highlightIndex === 0
+        ? this.meshMaterial[1].color.getStyle()
+        : this.meshMaterial[0].color.getStyle()
+    },
+    setMeshMaterialColor(color) {
+      for (let [key, material] of Object.entries(this.meshMaterial)) {
+        //key and this.params.highlightIndex are of different types
+        if (key != this.params.highlightIndex) {
+          material.color.setStyle(color)
+        }
       }
     },
     saveBlob(blob, fileName) {
@@ -668,6 +811,8 @@ export default {
       if (newData !== oldData) {
         // renderShape(newData, this.scene, this.drawParam)
         this.splines = getSplines(newData)
+        console.log("splines: " + this.splines);
+        console.log(newData)
         this.clearSingleMesh()
         this.clearAllMeshes()
         // show fist model by default
@@ -683,7 +828,11 @@ export default {
         if (this.params.showAll) {
           this.addAllShapes(this.params)
         } else {
-          this.addShapes(this.params)
+          if (this.params.highlight) {
+            this.addHighlightShapes(this.params)
+          } else {
+            this.addShapes(this.params)
+          }
         }
         this.updateGui()
         this.clearLabelDiv()

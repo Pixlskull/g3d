@@ -22,12 +22,64 @@ function reformatData(data) {
   return sorted
 }
 
+export function getMultiSplines(data) {
+  if (!data.length) {
+    // console.error('error: data for splines is empty')
+    return
+  }
+  function makeSpline(data, region, datIndex) {
+    const splines = {}
+    const formatted = reformatData(data)
+
+    Object.keys(formatted).forEach((key, keyIndex) => {
+      const tubeData = formatted[key]
+
+      const points = tubeData.map(
+        item => new THREE.Vector3(item[3], item[4], item[5])
+      )
+      // console.log(points.length)
+      const spline = new THREE.CatmullRomCurve3(points)
+      const color = palette[datIndex + keyIndex]
+      console.log("spline color: " + color);
+      splines[`${region}_${key}`] = { spline, color }
+    })
+    return splines
+  }
+  const start = 27053397
+  const end = 27373765
+  const palette = iwanthue(data.length * 2)
+  const splines = {}
+  let splitData = []
+  console.log(data)
+  const startingTime = performance.now()
+  data.forEach((dat, datIndex) => {
+    splitData[0] = makeSpline(dat.data.filter(point => point[2] < start), dat.region, datIndex)
+    splitData[1] = makeSpline(dat.data.filter(point => point[1] < end && point[2] > start), dat.region, datIndex)
+    splitData[2] = makeSpline(dat.data.filter(point => point[1] > end), dat.region, datIndex)
+    console.log(splitData)
+    for (const spline of splitData) {
+      for (const [key, value] of Object.entries(spline)){
+        if (!splines[key]){
+          splines[key] = []
+        }
+        splines[key].push(value)
+      }
+    }
+  })
+  const endTime = performance.now()
+  console.log(endTime - startingTime)
+  console.log(splines)
+  console.log(data[0].data.map(point => point[1]))
+  console.log("min: " + Math.min(...data[0].data.map(point => point[1])))
+  console.log("max: " + Math.max(...data[0].data.map(point => point[2])))
+}
 export function getSplines(data) {
   // console.log('preparing splines...')
   if (!data.length) {
     // console.error('error: data for splines is empty')
     return
   }
+  console.log(data)
   const splines = {}
   const palette = iwanthue(data.length * 2)
   data.forEach((dat, datIndex) => {
