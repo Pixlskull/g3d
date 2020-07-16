@@ -310,11 +310,13 @@ export default {
             this.updateHighlightParams()
             this.updateGui()
           }
+
           if (this.params.highlight) {
             this.addHighlightShapes(this.params)
           } else {
             this.addShapes(this.params)
           }
+          this.params.color = this.getMeshMaterialColor()
         })
         folderGeometry.open()
 
