@@ -864,12 +864,7 @@ export default {
           }
         })
       })
-      this.params.regionStart = this.params.highlightStart = this.params.highlightEnd = this.params.regionBoundaries[
-        this.params.region
-      ].start
-      this.params.regionEnd = this.params.regionBoundaries[
-        this.params.region
-      ].end
+      this.resetHighlightParams()
     },
     disposeMesh(mesh) {
       mesh.geometry.dispose()
@@ -1020,7 +1015,6 @@ export default {
           this.params.displayRegion = 'wholeChromosome'
           this.getHighlightParams(chroms, newData)
         }
-        this.resetHighlightParams()
         if (this.params.showAll) {
           this.addAllShapes(this.params)
         } else {
