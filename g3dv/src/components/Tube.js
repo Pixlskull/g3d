@@ -1,9 +1,10 @@
 import * as THREE from 'three'
 import { BufferGeometryUtils } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
-import { MeshLine, MeshLineMaterial } from 'three.meshline'
+// import { MeshLine, MeshLineMaterial } from 'three.meshline'
 import _ from 'lodash'
 import iwanthue from 'iwanthue'
 import { clearScene } from '../helper'
+import { Line } from 'three'
 
 /**
  * this component renders a 3D tube given the data3d array data
@@ -22,64 +23,12 @@ function reformatData(data) {
   return sorted
 }
 
-export function getMultiSplines(data) {
-  if (!data.length) {
-    // console.error('error: data for splines is empty')
-    return
-  }
-  function makeSpline(data, region, datIndex) {
-    const splines = {}
-    const formatted = reformatData(data)
-
-    Object.keys(formatted).forEach((key, keyIndex) => {
-      const tubeData = formatted[key]
-
-      const points = tubeData.map(
-        item => new THREE.Vector3(item[3], item[4], item[5])
-      )
-      // console.log(points.length)
-      const spline = new THREE.CatmullRomCurve3(points)
-      const color = palette[datIndex + keyIndex]
-      console.log("spline color: " + color);
-      splines[`${region}_${key}`] = { spline, color }
-    })
-    return splines
-  }
-  const start = 27053397
-  const end = 27373765
-  const palette = iwanthue(data.length * 2)
-  const splines = {}
-  let splitData = []
-  console.log(data)
-  const startingTime = performance.now()
-  data.forEach((dat, datIndex) => {
-    splitData[0] = makeSpline(dat.data.filter(point => point[2] < start), dat.region, datIndex)
-    splitData[1] = makeSpline(dat.data.filter(point => point[1] < end && point[2] > start), dat.region, datIndex)
-    splitData[2] = makeSpline(dat.data.filter(point => point[1] > end), dat.region, datIndex)
-    console.log(splitData)
-    for (const spline of splitData) {
-      for (const [key, value] of Object.entries(spline)){
-        if (!splines[key]){
-          splines[key] = []
-        }
-        splines[key].push(value)
-      }
-    }
-  })
-  const endTime = performance.now()
-  console.log(endTime - startingTime)
-  console.log(splines)
-  console.log(data[0].data.map(point => point[1]))
-  console.log("min: " + Math.min(...data[0].data.map(point => point[1])))
-  console.log("max: " + Math.max(...data[0].data.map(point => point[2])))
-}
 export function getSplines(data) {
   // console.log('preparing splines...')
   if (!data.length) {
     // console.error('error: data for splines is empty')
     return
   }
-  console.log(data)
   const splines = {}
   const palette = iwanthue(data.length * 2)
   data.forEach((dat, datIndex) => {
@@ -117,6 +66,71 @@ export function getBallMesh(spline, param, chrom) {
   return mesh
 }
 
+export function getHighlightBallMesh(spline, param, chrom) {
+  const points = spline.getPoints(500)
+  const geometry = new THREE.SphereBufferGeometry(0.5, 16, 16)
+  const colorKey = `color_${chrom}`
+  const color = param[colorKey]
+  let material;
+  const verticesCount = geometry.getIndex().count
+  console.log(verticesCount)
+  const totalBP = param.regionEnd - param.regionStart
+  //The geometry groups need to start on a multiple of 3 to draw the shapes properly
+  const highlightStart =
+    Math.floor(
+      ((param.highlightStart - param.regionStart) *
+        verticesCount) /
+        totalBP /
+        3
+    ) * 3
+  const highlightEnd =
+    Math.floor(
+      ((param.highlightEnd - param.regionStart) *
+        verticesCount) /
+        totalBP /
+        3
+    ) * 3
+
+  if (
+    highlightEnd <= highlightStart ||
+    (highlightStart <= 0 && highlightEnd <= 0) ||
+    (highlightStart >= verticesCount && highlightEnd >= verticesCount)
+  ) {
+    geometry.addGroup(0, Infinity, 0)
+    material = [
+      new THREE.MeshBasicMaterial({
+        color
+      })
+    ]
+    param.highlightIndex = null
+  } else {
+    geometry.addGroup(0, highlightStart, 0)
+    geometry.addGroup(highlightStart, highlightEnd, 1)
+    geometry.addGroup(highlightEnd, Infinity, 2)
+    material = [
+      new THREE.MeshBasicMaterial({
+        color
+      }),
+      new THREE.MeshBasicMaterial({
+        color: param.highlightColor
+      }),
+      new THREE.MeshBasicMaterial({
+        color
+      })
+    ]
+    param.highlightIndex = 1
+  }
+  const geoms = []
+  points.forEach(point => {
+    const geom = geometry.clone()
+    geom.translate(point.x, point.y, point.z)
+    geoms.push(geom)
+  })
+  const mergedGeometry = BufferGeometryUtils.mergeBufferGeometries(geoms)
+  const mesh = new THREE.Mesh(mergedGeometry, material)
+  return mesh
+}
+
 export function getTubeMesh(spline, param, chrom) {
   const geometry = new THREE.TubeBufferGeometry(spline, 2000, 0.5, 8, false)
   const colorKey = `color_${chrom}`
@@ -126,23 +140,148 @@ export function getTubeMesh(spline, param, chrom) {
   return mesh
 }
 
-export function getLineMesh(spline, param, chrom) {
-  const points = spline.getPoints(5000)
-  const geometry = new THREE.Geometry().setFromPoints(points)
-  const line = new MeshLine()
-  line.setGeometry(geometry)
-  // line.setGeometry(geometry, function() {
-  //   return 2
-  // })
+export function getHighlightTubeMesh(spline, param, chrom) {
+  const geometry = new THREE.TubeBufferGeometry(spline, 2000, 0.5, 8, false)
   const colorKey = `color_${chrom}`
   const color = param[colorKey]
-  const material = new MeshLineMaterial({
-    color,
-    lineWidth: param.lineWidth / 10
-  })
-  const mesh = new THREE.Mesh(line.geometry, material) // this syntax could definitely be improved!
+  let material;
+  const verticesCount = geometry.getIndex().count
+  const totalBP = param.regionEnd - param.regionStart
+  //The geometry groups need to start on a multiple of 3 to draw the shapes properly
+  const highlightStart =
+    Math.floor(
+      ((param.highlightStart - param.regionStart) *
+        verticesCount) /
+        totalBP /
+        3
+    ) * 3
+  const highlightEnd =
+    Math.floor(
+      ((param.highlightEnd - param.regionStart) *
+        verticesCount) /
+        totalBP /
+        3
+    ) * 3
+
+  if (
+    highlightEnd <= highlightStart ||
+    (highlightStart <= 0 && highlightEnd <= 0) ||
+    (highlightStart >= verticesCount && highlightEnd >= verticesCount)
+  ) {
+    geometry.addGroup(0, Infinity, 0)
+    material = [
+      new THREE.MeshBasicMaterial({
+        color
+      })
+    ]
+    param.highlightIndex = null
+  } else {
+    geometry.addGroup(0, highlightStart, 0)
+    geometry.addGroup(highlightStart, highlightEnd, 1)
+    geometry.addGroup(highlightEnd, Infinity, 2)
+    material = [
+      new THREE.MeshBasicMaterial({
+        color
+      }),
+      new THREE.MeshBasicMaterial({
+        color: param.highlightColor
+      }),
+      new THREE.MeshBasicMaterial({
+        color
+      })
+    ]
+    param.highlightIndex = 1
+  }
+  const mesh = new THREE.Mesh(geometry, material) // this syntax could definitely be improved!
   return mesh
 }
+export function getLineMesh(spline, param, chrom) {
+  const points = spline.getPoints(5000)
+  const geometry = new THREE.BufferGeometry().setFromPoints(points)
+  const colorKey = `color_${chrom}`
+  const color = param[colorKey]
+  const material = new THREE.LineBasicMaterial({
+    color
+  })
+  const mesh = new Line(geometry, material)
+  return mesh
+}
+
+export function getHighlightLineMesh(spline, param, chrom) {
+  const points = spline.getPoints(5000)
+  const geometry = new THREE.BufferGeometry().setFromPoints(points)
+  const colorKey = `color_${chrom}`
+  const color = param[colorKey]
+  let material;
+  const verticesCount = 5000
+  const totalBP = param.regionEnd - param.regionStart
+  //The geometry groups need to start on a multiple of 3 to draw the shapes properly
+  const highlightStart =
+    Math.floor(
+      ((param.highlightStart - param.regionStart) *
+        verticesCount) /
+        totalBP /
+        3
+    ) * 3
+  const highlightEnd =
+    Math.floor(
+      ((param.highlightEnd - param.regionStart) *
+        verticesCount) /
+        totalBP /
+        3
+    ) * 3
+
+  if (
+    highlightEnd <= highlightStart ||
+    (highlightStart <= 0 && highlightEnd <= 0) ||
+    (highlightStart >= verticesCount && highlightEnd >= verticesCount)
+  ) {
+    geometry.addGroup(0, Infinity, 0)
+    material = [
+      new THREE.MeshBasicMaterial({
+        color
+      })
+    ]
+    param.highlightIndex = null
+  } else {
+    geometry.addGroup(0, highlightStart, 0)
+    geometry.addGroup(highlightStart, highlightEnd, 1)
+    geometry.addGroup(highlightEnd, Infinity, 2)
+    material = [
+      new THREE.MeshBasicMaterial({
+        color
+      }),
+      new THREE.MeshBasicMaterial({
+        color: param.highlightColor
+      }),
+      new THREE.MeshBasicMaterial({
+        color
+      })
+    ]
+    param.highlightIndex = 1
+  }
+  const mesh = new Line(geometry, material)
+  return mesh
+}
+
+// export function getLineMesh(spline, param, chrom) {
+//   const points = spline.getPoints(5000)
+//   const geometry = new THREE.Geometry().setFromPoints(points)
+//   const line = new MeshLine()
+//   line.setGeometry(geometry)
+//   // line.setGeometry(geometry, function() {
+//   //   return 2
+//   // })
+//   console.log(param)
+//   const colorKey = `color_${chrom}`
+//   const color = param[colorKey]
+//   const material = new MeshLineMaterial({
+//     color,
+//     lineWidth: param.lineWidth / 10
+//   })
+//   const mesh = new THREE.Mesh(line.geometry, material) // this syntax could definitely be improved!
+//   return mesh
+// }
 
 export function renderShape(data, scene, param) {
   // console.log('render tube...', param)

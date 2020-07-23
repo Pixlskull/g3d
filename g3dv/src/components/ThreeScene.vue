@@ -23,7 +23,10 @@ import {
   getSplines,
   getBallMesh,
   getTubeMesh,
-  getLineMesh
+  getLineMesh,
+  getHighlightTubeMesh,
+  getHighlightBallMesh,
+  getHighlightLineMesh,
 } from '@/components/Tube'
 // import { clearScene } from '@/helper'
 
@@ -107,7 +110,6 @@ export default {
         displayRegion: null,
         highlight: false,
         highlightIndex: null,
-        highlightRegion: '',
         highlightStart: 0,
         highlightEnd: 0,
         highlightColor: 'rgb(255, 255, 0)',
@@ -233,9 +235,8 @@ export default {
         .name('Show all')
         .onChange(() => this.toggleAllMode())
       if (
-        !this.params.showAll &&
-        (this.params.displayRegion === 'wholeGenome' ||
-          this.params.displayRegion === 'wholeChromosome')
+        this.params.displayRegion === "wholeGenome" ||
+        this.params.displayRegion === "wholeChromosome"
       ) {
         const highlightFolder = this.gui.addFolder('Highlighting')
         const start = this.params.regionStart
@@ -244,6 +245,13 @@ export default {
           .add(this.params, 'highlight')
           .name('Highlight')
           .onChange(() => this.toggleHighlightMode())
+        if (this.params.showAll) {
+            highlightFolder.add(this.params, 'region', chroms).onChange(() => {
+            this.resetHighlightParams()
+            this.updateGui()
+            this.addAllShapes(this.params)
+          })
+        }
         highlightFolder
           .add(this.params, 'highlightStart', start, end, 1)
           .name('Start')
@@ -270,7 +278,8 @@ export default {
             .name(chrom)
             .onChange(e => {
               if (this.meshes[chrom]) {
-                this.meshes[chrom].material.color.setStyle(e)
+                //this.meshes[chrom].material.color.setStyle(e)
+                this.setMeshesMaterialColor(chrom, e)
               }
             })
         })
@@ -307,7 +316,7 @@ export default {
             this.params.displayRegion === "wholeGenome" ||
             this.params.displayRegion === "wholeChromosome"
           ) {
-            this.updateHighlightParams()
+            this.resetHighlightParams()
             this.updateGui()
           }
 
@@ -414,14 +423,16 @@ export default {
       if (this.params.showAll) {
         Object.keys(this.meshes).forEach(chrom => {
           if (chrom === this.params.selectedMeshChrom) {
-            this.meshes[chrom].material.color.set(0xffff00)
+            this.setMeshMaterialColor(chrom, 'yellow')
+            //this.meshes[chrom].material.color.set(0xffff00)
             this.meshes[chrom].scale.set(1.1, 1.1, 1.1)
             this.meshes[chrom].children[0].element.style.color = '#ffff00'
           }
           if (chrom === this.params.previousSelected) {
             const colorKey = `color_${chrom}`
             const color = this.params[colorKey]
-            this.meshes[chrom].material.color.setStyle(color)
+            //this.meshes[chrom].material.color.setStyle(color)
+            this.setMeshMaterialColor(chrom, color)
             this.meshes[chrom].scale.set(1, 1, 1)
             this.meshes[chrom].children[0].element.style.color = color
           }
@@ -543,7 +554,11 @@ export default {
         this.params.lookAhead = false
         this.params.cameraHelper = false
         this.clearSingleMesh()
-        this.addAllShapes(this.params)
+        if (this.params.highlight) {
+          this.addAllShapesHighlight(this.params)
+        } else {
+          this.addAllShapes(this.params)
+        }
         this.updateGui()
       } else {
         this.clearAllMeshes()
@@ -556,16 +571,22 @@ export default {
       }
     },
     toggleHighlightMode() {
-      this.clearLabelDiv()
-      this.clearSingleMesh()
       if (this.params.highlight) {
-        this.addHighlightShapes(this.params)
+        if (this.params.showAll) {
+          this.addAllShapesHighlight(this.params)
+        } else {
+          this.addHighlightShapes(this.params)
+        }
       } else {
         this.params.highlightIndex = null
-        this.addShapes(this.params)
+        if (this.params.showAll) {
+          this.addAllShapes(this.params)
+        } else {
+          this.addShapes(this.params)
+        }
       }
     },
-    updateHighlightParams() {
+    resetHighlightParams() {
       this.params.highlight = false
       this.params.highlightIndex = null
       this.params.regionStart = this.params.highlightStart = this.params.highlightEnd = this.params.regionBoundaries[
@@ -590,6 +611,57 @@ export default {
             break
           case 'ball':
             mesh = getBallMesh(spline, params, chrom)
+            break
+          default:
+            break
+        }
+        this.scene.add(mesh)
+        const displayKey = `display_${chrom}`
+        mesh.visible = this.params[displayKey]
+        // add label
+        const labelDiv = document.createElement('div')
+        labelDiv.className = 'label'
+        labelDiv.textContent = chrom
+        labelDiv.style.marginTop = '-1em'
+        const colorKey = `color_${chrom}`
+        const color = params[colorKey]
+        labelDiv.style.color = color
+        const label = new CSS2DObject(labelDiv)
+        label.position.copy(spline.getPoint(0))
+        mesh.add(label)
+        this.meshes[chrom] = mesh
+        labelDiv.addEventListener(
+          'click',
+          () => {
+            this.params.previousSelected = this.params.selectedMeshChrom
+            this.params.selectedMeshChrom = chrom
+          },
+          false
+        )
+      })
+    },
+    addAllShapesHighlight(params){
+      this.clearAllMeshes()
+      this.clearLabelDiv()
+      Object.keys(this.splines).forEach(chrom => {
+        const { spline } = this.splines[chrom]
+        let mesh
+        const highlight = chrom === params.region
+        switch (params.shape) {
+          case 'line':
+            mesh = highlight
+              ? getHighlightLineMesh(spline, params, chrom)
+              : getLineMesh(spline, params, chrom)
+            break
+          case 'tube':
+            mesh = highlight
+              ? getHighlightTubeMesh(spline, params, chrom)
+              : getTubeMesh(spline, params, chrom)
+            break
+          case 'ball':
+            mesh = highlight
+              ? getHighlightBallMesh
+              : getBallMesh(spline, params, chrom)
             break
           default:
             break
@@ -689,6 +761,39 @@ export default {
             totalBP /
             3
         ) * 3
+      // else if (highlightStart <= 0 && highlightEnd >= verticesCount){
+      //   this.meshGeometry.addGroup(0, Infinity, 0)
+      //   this.meshMaterial = [
+      //     new THREE.MeshBasicMaterial({
+      //       color: this.params.highlightColor
+      //     })
+      //   ]
+      //   this.params.highlightIndex = 0
+      // } else if (highlightStart <= 0) {
+      //   this.meshGeometry.addGroup(0, highlightEnd, 0)
+      //   this.meshGeometry.addGroup(highlightEnd, verticesCount, 1)
+      //   this.meshMaterial = [
+      //     new THREE.MeshBasicMaterial({
+      //       color: this.params.highlightColor
+      //     }),
+      //     new THREE.MeshBasicMaterial({
+      //       color: this.splines[params.region].color
+      //     })
+      //   ]
+      //   this.params.highlightIndex = 0
+      // } else if (highlightEnd >= verticesCount) {
+      //   this.meshGeometry.addGroup(0, highlightStart, 0)
+      //   this.meshGeometry.addGroup(highlightStart, verticesCount, 1)
+      //   this.meshMaterial = [
+      //     new THREE.MeshBasicMaterial({
+      //       color: this.splines[params.region].color
+      //     }),
+      //     new THREE.MeshBasicMaterial({
+      //       color: this.params.highlightColor
+      //     })
+      //   ]
+      //   this.params.highlightIndex = 1
+      // } 
       if (
         highlightEnd <= highlightStart ||
         (highlightStart <= 0 && highlightEnd <= 0) ||
@@ -701,38 +806,6 @@ export default {
           })
         ]
         this.params.highlightIndex = null
-      } else if (highlightStart <= 0 && highlightEnd >= verticesCount){
-        this.meshGeometry.addGroup(0, Infinity, 0)
-        this.meshMaterial = [
-          new THREE.MeshBasicMaterial({
-            color: this.params.highlightColor
-          })
-        ]
-        this.params.highlightIndex = 0
-      } else if (highlightStart <= 0) {
-        this.meshGeometry.addGroup(0, highlightEnd, 0)
-        this.meshGeometry.addGroup(highlightEnd, verticesCount, 1)
-        this.meshMaterial = [
-          new THREE.MeshBasicMaterial({
-            color: this.params.highlightColor
-          }),
-          new THREE.MeshBasicMaterial({
-            color: this.splines[params.region].color
-          })
-        ]
-        this.params.highlightIndex = 0
-      } else if (highlightEnd >= verticesCount) {
-        this.meshGeometry.addGroup(0, highlightStart, 0)
-        this.meshGeometry.addGroup(highlightStart, verticesCount, 1)
-        this.meshMaterial = [
-          new THREE.MeshBasicMaterial({
-            color: this.splines[params.region].color
-          }),
-          new THREE.MeshBasicMaterial({
-            color: this.params.highlightColor
-          })
-        ]
-        this.params.highlightIndex = 1
       } else {
         this.meshGeometry.addGroup(0, highlightStart, 0)
         this.meshGeometry.addGroup(highlightStart, highlightEnd, 1)
@@ -750,7 +823,6 @@ export default {
         ]
         this.params.highlightIndex = 1
       }
-
       this.mesh = new THREE.Mesh(this.meshGeometry, this.meshMaterial)
       // add label
       const labelDiv = document.createElement('div')
@@ -829,6 +901,18 @@ export default {
         ? this.meshMaterial[1].color.getStyle()
         : this.meshMaterial[0].color.getStyle()
     },
+    setMeshesMaterialColor(chrom, color) {
+      if (chrom === this.params.region) {
+        for (let [key, material] of Object.entries(this.meshes[chrom].material)) {
+          //key and this.params.highlightIndex are of different types
+          if (key != this.params.highlightIndex) {
+            material.color.setStyle(color)
+          }
+        }
+      } else {
+        this.meshes[chrom].material[0].color.setStyle(color)
+      }
+    },
     setMeshMaterialColor(color) {
       for (let [key, material] of Object.entries(this.meshMaterial)) {
         //key and this.params.highlightIndex are of different types
@@ -838,8 +922,14 @@ export default {
       }
     },
     setHighlightMaterialColor(color) {
-      if (this.params.highlightIndex){
-        this.meshMaterial[this.params.highlightIndex].color.setStyle(color)
+      if (this.params.highlightIndex) {
+        if (this.params.showAll) {
+          this.meshes[this.params.region].material[
+            this.params.highlightIndex
+          ].color.setStyle(color)
+        } else {
+          this.meshMaterial[this.params.highlightIndex].color.setStyle(color)
+        }
       }
     },
     saveBlob(blob, fileName) {
@@ -917,7 +1007,6 @@ export default {
           this.params[displayKey] = true
         })
         this.params.region = chroms[0]
-        this.params.highlightRegion = chroms[0]
 
         //determines which displayRegion the user selected
         if (newData.length > 1) {
@@ -931,6 +1020,7 @@ export default {
           this.params.displayRegion = 'wholeChromosome'
           this.getHighlightParams(chroms, newData)
         }
+        this.resetHighlightParams()
         if (this.params.showAll) {
           this.addAllShapes(this.params)
         } else {
