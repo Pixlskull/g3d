@@ -19,6 +19,7 @@ import {
 import Stats from 'stats-js'
 import * as dat from 'dat.gui'
 import html2canvas from 'html2canvas'
+import _ from "lodash"
 import {
   getSplines,
   getBallMesh,
@@ -100,6 +101,12 @@ export default {
         cameraHelper: false,
         scale: 1,
         speed: 1,
+        zooming: false,
+        cameraDistance: null,
+        cameraZoom: 1,
+        cameraZoomThreshold: [400, 150, -1],
+        cameraZoomResolution: [20000, 60000, 200000],
+        dynamicResolution: false,
         sceneColor: 0x00000,
         screenshot: null,
         showAll: false,
@@ -174,6 +181,32 @@ export default {
     },
     createControls() {
       this.controls = new OrbitControls(this.camera, this.container)
+      if (this.params.dynamicResolution) {
+        this.params.cameraDistance = this.controls.object.position.distanceTo(
+          this.controls.target
+        )
+        const fetch = _.debounce(this.dynamicResolution.bind(this), 100)
+        this.controls.addEventListener("change", fetch)
+      }
+    },
+    dynamicResolution(e) {
+      if (!this.$store.state.isLoading) {
+        this.params.zooming = true;
+        this.params.cameraDistance = e.target.object.position.distanceTo(
+          e.target.target
+        )
+        const zoom = _.findIndex(
+          this.params.cameraZoomThreshold,
+          zoom => this.params.cameraDistance > zoom
+        )
+        if (zoom !== this.params.cameraZoom) {
+          this.params.cameraZoom = zoom
+          this.$store.dispatch(
+            "fetchDataDynamicResolution",
+            this.params.cameraZoomResolution[this.params.cameraZoom]
+          )
+        }
+      }
     },
     createLights() {
       const ambientLight = new THREE.HemisphereLight(
@@ -246,7 +279,7 @@ export default {
           .name('Highlight')
           .onChange(() => this.toggleHighlightMode())
         if (this.params.showAll) {
-            highlightFolder.add(this.params, 'region', chroms).onChange(() => {
+          highlightFolder.add(this.params, "region", chroms).onChange(() => {
             this.resetHighlightParams()
             this.updateGui()
             this.addAllShapes(this.params)
@@ -319,12 +352,7 @@ export default {
             this.resetHighlightParams()
             this.updateGui()
           }
-
-          if (this.params.highlight) {
-            this.addHighlightShapes(this.params)
-          } else {
-            this.addShapes(this.params)
-          }
+          this.addShapes(this.params)
           this.params.color = this.getMeshMaterialColor()
         })
         folderGeometry.open()
@@ -554,36 +582,22 @@ export default {
         this.params.lookAhead = false
         this.params.cameraHelper = false
         this.clearSingleMesh()
-        if (this.params.highlight) {
-          this.addAllShapesHighlight(this.params)
-        } else {
-          this.addAllShapes(this.params)
-        }
+        this.addAllShapes(this.params)
         this.updateGui()
       } else {
         this.clearAllMeshes()
-        if (this.params.highlight) {
-          this.addHighlightShapes(this.params)
-        } else {
-          this.addShapes(this.params)
-        }
+        this.addShapes(this.params)
         this.updateGui()
       }
     },
     toggleHighlightMode() {
-      if (this.params.highlight) {
-        if (this.params.showAll) {
-          this.addAllShapesHighlight(this.params)
-        } else {
-          this.addHighlightShapes(this.params)
-        }
-      } else {
+      if (!this.params.highlight) {
         this.params.highlightIndex = null
-        if (this.params.showAll) {
-          this.addAllShapes(this.params)
-        } else {
-          this.addShapes(this.params)
-        }
+      }
+      if (this.params.showAll) {
+        this.addAllShapes(this.params)
+      } else {
+        this.addShapes(this.params)
       }
     },
     resetHighlightParams() {
@@ -599,97 +613,100 @@ export default {
     addAllShapes(params) {
       this.clearAllMeshes()
       this.clearLabelDiv()
-      Object.keys(this.splines).forEach(chrom => {
-        const { spline } = this.splines[chrom]
-        let mesh
-        switch (params.shape) {
-          case 'line':
-            mesh = getLineMesh(spline, params, chrom)
-            break
-          case 'tube':
-            mesh = getTubeMesh(spline, params, chrom)
-            break
-          case 'ball':
-            mesh = getBallMesh(spline, params, chrom)
-            break
-          default:
-            break
-        }
-        this.scene.add(mesh)
-        const displayKey = `display_${chrom}`
-        mesh.visible = this.params[displayKey]
-        // add label
-        const labelDiv = document.createElement('div')
-        labelDiv.className = 'label'
-        labelDiv.textContent = chrom
-        labelDiv.style.marginTop = '-1em'
-        const colorKey = `color_${chrom}`
-        const color = params[colorKey]
-        labelDiv.style.color = color
-        const label = new CSS2DObject(labelDiv)
-        label.position.copy(spline.getPoint(0))
-        mesh.add(label)
-        this.meshes[chrom] = mesh
-        labelDiv.addEventListener(
-          'click',
-          () => {
-            this.params.previousSelected = this.params.selectedMeshChrom
-            this.params.selectedMeshChrom = chrom
-          },
-          false
-        )
-      })
-    },
-    addAllShapesHighlight(params){
-      this.clearAllMeshes()
-      this.clearLabelDiv()
-      Object.keys(this.splines).forEach(chrom => {
-        const { spline } = this.splines[chrom]
-        let mesh
-        const highlight = chrom === params.region
-        switch (params.shape) {
-          case 'line':
-            mesh = highlight
-              ? getHighlightLineMesh(spline, params, chrom)
-              : getLineMesh(spline, params, chrom)
-            break
-          case 'tube':
-            mesh = highlight
-              ? getHighlightTubeMesh(spline, params, chrom)
-              : getTubeMesh(spline, params, chrom)
-            break
-          case 'ball':
-            mesh = highlight
-              ? getHighlightBallMesh
-              : getBallMesh(spline, params, chrom)
-            break
-          default:
-            break
-        }
-        this.scene.add(mesh)
-        const displayKey = `display_${chrom}`
-        mesh.visible = this.params[displayKey]
-        // add label
-        const labelDiv = document.createElement('div')
-        labelDiv.className = 'label'
-        labelDiv.textContent = chrom
-        labelDiv.style.marginTop = '-1em'
-        const colorKey = `color_${chrom}`
-        const color = params[colorKey]
-        labelDiv.style.color = color
-        const label = new CSS2DObject(labelDiv)
-        label.position.copy(spline.getPoint(0))
-        mesh.add(label)
-        this.meshes[chrom] = mesh
-        labelDiv.addEventListener(
-          'click',
-          () => {
-            this.params.previousSelected = this.params.selectedMeshChrom
-            this.params.selectedMeshChrom = chrom
-          },
-          false
-        )
-      })
+      if (this.params.highlight) {
+        Object.keys(this.splines).forEach(chrom => {
+          const { spline } = this.splines[chrom]
+          let mesh
+          const highlight = chrom === params.region
+          switch (params.shape) {
+            case 'line':
+              mesh = highlight
+                ? getHighlightLineMesh(spline, params, chrom)
+                : getLineMesh(spline, params, chrom)
+              break
+            case 'tube':
+              mesh = highlight
+                ? getHighlightTubeMesh(spline, params, chrom)
+                : getTubeMesh(spline, params, chrom)
+              break
+            case 'ball':
+              mesh = highlight
+                ? getHighlightBallMesh
+                : getBallMesh(spline, params, chrom)
+              break
+            default:
+              break
+          }
+          if (!highlight) {
+            mesh.material.transparent = true
+            mesh.material.opacity = 0.25
+          }
+          this.scene.add(mesh)
+          const displayKey = `display_${chrom}`
+          mesh.visible = this.params[displayKey]
+          // add label
+          const labelDiv = document.createElement('div')
+          labelDiv.className = 'label'
+          labelDiv.textContent = chrom
+          labelDiv.style.marginTop = '-1em'
+          const colorKey = `color_${chrom}`
+          const color = params[colorKey]
+          labelDiv.style.color = color
+          const label = new CSS2DObject(labelDiv)
+          label.position.copy(spline.getPoint(0))
+          mesh.add(label)
+          this.meshes[chrom] = mesh
+          labelDiv.addEventListener(
+            'click',
+            () => {
+              this.params.previousSelected = this.params.selectedMeshChrom
+              this.params.selectedMeshChrom = chrom
+            },
+            false
+          )
+        })
+      } else {
+        Object.keys(this.splines).forEach(chrom => {
+          const { spline } = this.splines[chrom]
+          let mesh
+          switch (params.shape) {
+            case 'line':
+              mesh = getLineMesh(spline, params, chrom)
+              break
+            case 'tube':
+              mesh = getTubeMesh(spline, params, chrom)
+              break
+            case 'ball':
+              mesh = getBallMesh(spline, params, chrom)
+              break
+            default:
+              break
+          }
+          this.scene.add(mesh)
+          const displayKey = `display_${chrom}`
+          mesh.visible = this.params[displayKey]
+          // add label
+          const labelDiv = document.createElement('div')
+          labelDiv.className = 'label'
+          labelDiv.textContent = chrom
+          labelDiv.style.marginTop = '-1em'
+          const colorKey = `color_${chrom}`
+          const color = params[colorKey]
+          labelDiv.style.color = color
+          const label = new CSS2DObject(labelDiv)
+          label.position.copy(spline.getPoint(0))
+          mesh.add(label)
+          this.meshes[chrom] = mesh
+          labelDiv.addEventListener(
+            'click',
+            () => {
+              this.params.previousSelected = this.params.selectedMeshChrom
+              this.params.selectedMeshChrom = chrom
+            },
+            false
+          )
+        })
+      }
     },
     addShapes(params) {
       this.clearSingleMesh()
@@ -704,124 +721,61 @@ export default {
         8,
         false
       )
-      this.meshGeometry.addGroup(0, Infinity, 0)
-      this.meshMaterial = [
-        new THREE.MeshBasicMaterial({
-          color: this.splines[params.region].color
-        })
-      ]
-      this.mesh = new THREE.Mesh(this.meshGeometry, this.meshMaterial)
-      // add label
-      const labelDiv = document.createElement('div')
-      labelDiv.className = 'label'
-      labelDiv.textContent = region
-      labelDiv.style.marginTop = '-1em'
-      labelDiv.style.color = this.splines[params.region].color
-      const label = new CSS2DObject(labelDiv)
-      label.position.copy(extrudePath.getPoint(0))
-      this.mesh.add(label)
-      this.parent.add(this.mesh)
-      labelDiv.addEventListener(
-        'click',
-        () => {
-          this.params.previousSelected = this.params.selectedMeshChrom
-          this.params.selectedMeshChrom = params.region
-        },
-        false
-      )
-    },
-    addHighlightShapes(params) {
-      this.clearSingleMesh()
-      this.clearLabelDiv()
-      this.params.selectedMeshChrom = null
-      const { region } = params
-      const extrudePath = this.splines[region].spline
-      this.meshGeometry = new THREE.TubeBufferGeometry(
-        extrudePath,
-        2000,
-        0.2,
-        8,
-        false
-      )
-      const verticesCount = this.meshGeometry.getIndex().count
-      const totalBP = this.params.regionEnd - this.params.regionStart
+      if (this.params.highlight) {
+        const verticesCount = this.meshGeometry.getIndex().count
+        const totalBP = this.params.regionEnd - this.params.regionStart
 
-      //The geometry groups need to start on a multiple of 3 to draw the shapes properly
-      const highlightStart =
-        Math.floor(
-          ((this.params.highlightStart - this.params.regionStart) *
-            verticesCount) /
-            totalBP /
-            3
-        ) * 3
-      const highlightEnd =
-        Math.floor(
-          ((this.params.highlightEnd - this.params.regionStart) *
-            verticesCount) /
-            totalBP /
-            3
-        ) * 3
-      // else if (highlightStart <= 0 && highlightEnd >= verticesCount){
-      //   this.meshGeometry.addGroup(0, Infinity, 0)
-      //   this.meshMaterial = [
-      //     new THREE.MeshBasicMaterial({
-      //       color: this.params.highlightColor
-      //     })
-      //   ]
-      //   this.params.highlightIndex = 0
-      // } else if (highlightStart <= 0) {
-      //   this.meshGeometry.addGroup(0, highlightEnd, 0)
-      //   this.meshGeometry.addGroup(highlightEnd, verticesCount, 1)
-      //   this.meshMaterial = [
-      //     new THREE.MeshBasicMaterial({
-      //       color: this.params.highlightColor
-      //     }),
-      //     new THREE.MeshBasicMaterial({
-      //       color: this.splines[params.region].color
-      //     })
-      //   ]
-      //   this.params.highlightIndex = 0
-      // } else if (highlightEnd >= verticesCount) {
-      //   this.meshGeometry.addGroup(0, highlightStart, 0)
-      //   this.meshGeometry.addGroup(highlightStart, verticesCount, 1)
-      //   this.meshMaterial = [
-      //     new THREE.MeshBasicMaterial({
-      //       color: this.splines[params.region].color
-      //     }),
-      //     new THREE.MeshBasicMaterial({
-      //       color: this.params.highlightColor
-      //     })
-      //   ]
-      //   this.params.highlightIndex = 1
-      // } 
-      if (
-        highlightEnd <= highlightStart ||
-        (highlightStart <= 0 && highlightEnd <= 0) ||
-        (highlightStart >= verticesCount && highlightEnd >= verticesCount)
-      ) {
+        //The geometry groups need to start on a multiple of 3 to draw the shapes properly
+        const highlightStart =
+          Math.floor(
+            ((this.params.highlightStart - this.params.regionStart) *
+              verticesCount) /
+              totalBP /
+              3
+          ) * 3
+        const highlightEnd =
+          Math.floor(
+            ((this.params.highlightEnd - this.params.regionStart) *
+              verticesCount) /
+              totalBP /
+              3
+          ) * 3
+        if (
+          highlightEnd <= highlightStart ||
+          (highlightStart <= 0 && highlightEnd <= 0) ||
+          (highlightStart >= verticesCount && highlightEnd >= verticesCount)
+        ) {
+          this.meshGeometry.addGroup(0, Infinity, 0)
+          this.meshMaterial = [
+            new THREE.MeshBasicMaterial({
+              color: this.splines[params.region].color
+            })
+          ]
+          this.params.highlightIndex = null
+        } else {
+          this.meshGeometry.addGroup(0, highlightStart, 0)
+          this.meshGeometry.addGroup(highlightStart, highlightEnd, 1)
+          this.meshGeometry.addGroup(highlightEnd, Infinity, 2)
+          this.meshMaterial = [
+            new THREE.MeshBasicMaterial({
+              color: this.splines[params.region].color
+            }),
+            new THREE.MeshBasicMaterial({
+              color: this.params.highlightColor
+            }),
+            new THREE.MeshBasicMaterial({
+              color: this.splines[params.region].color
+            })
+          ]
+          this.params.highlightIndex = 1
+        }
+      } else {
         this.meshGeometry.addGroup(0, Infinity, 0)
         this.meshMaterial = [
           new THREE.MeshBasicMaterial({
             color: this.splines[params.region].color
           })
         ]
-        this.params.highlightIndex = null
-      } else {
-        this.meshGeometry.addGroup(0, highlightStart, 0)
-        this.meshGeometry.addGroup(highlightStart, highlightEnd, 1)
-        this.meshGeometry.addGroup(highlightEnd, Infinity, 2)
-        this.meshMaterial = [
-          new THREE.MeshBasicMaterial({
-            color: this.splines[params.region].color
-          }),
-          new THREE.MeshBasicMaterial({
-            color: this.params.highlightColor
-          }),
-          new THREE.MeshBasicMaterial({
-            color: this.splines[params.region].color
-          })
-        ]
-        this.params.highlightIndex = 1
       }
       this.mesh = new THREE.Mesh(this.meshGeometry, this.meshMaterial)
       // add label
@@ -1000,29 +954,30 @@ export default {
           const displayKey = `display_${chrom}`
           this.params[colorKey] = this.splines[chrom].color
           this.params[displayKey] = true
+
         })
         this.params.region = chroms[0]
-
-        //determines which displayRegion the user selected
-        if (newData.length > 1) {
-          this.params.displayRegion = 'wholeGenome'
-          this.getHighlightParams(chroms, newData)
-        } else if (newData[0].region.includes(':') || newData[0].region.includes('-')) {
-          this.params.displayRegion = 'inputRegion'
-          this.params.highlight = false
-          this.params.highlightIndex = null
+        console.log(this.params.zooming)
+        if (this.params.zooming) {
+          this.params.zooming = false
         } else {
-          this.params.displayRegion = 'wholeChromosome'
-          this.getHighlightParams(chroms, newData)
+          //determines which displayRegion the user selected
+          if (newData.length > 1) {
+            this.params.displayRegion = 'wholeGenome'
+            this.getHighlightParams(chroms, newData)
+          } else if (newData[0].region.includes(':') || newData[0].region.includes('-')) {
+            this.params.displayRegion = 'inputRegion'
+            this.params.highlight = false
+            this.params.highlightIndex = null
+          } else {
+            this.params.displayRegion = 'wholeChromosome'
+            this.getHighlightParams(chroms, newData)
+          }
         }
         if (this.params.showAll) {
           this.addAllShapes(this.params)
         } else {
-          if (this.params.highlight) {
-            this.addHighlightShapes(this.params)
-          } else {
-            this.addShapes(this.params)
-          }
+          this.addShapes(this.params)
         }
         this.updateGui()
         this.clearLabelDiv()
