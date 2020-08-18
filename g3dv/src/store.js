@@ -51,7 +51,6 @@ export default new Vuex.Store({
     },
     async fetchData({ commit, state }) {
       const { region, resolution, regionControl } = state.g3d
-      console.log(resolution)
       const parsedRegion = parseRegionString(region)
       if (parsedRegion.error) {
         commit('SET_STATE_ERROR_MSG', parsedRegion.error)
@@ -90,7 +89,7 @@ export default new Vuex.Store({
     },
     async fetchDataDynamicResolution({ commit, state }, resolution) {
       const { region, regionControl } = state.g3d
-      console.log(resolution)
+      //console.log(resolution)
       const parsedRegion = parseRegionString(region)
       if (parsedRegion.error) {
         commit('SET_STATE_ERROR_MSG', parsedRegion.error)

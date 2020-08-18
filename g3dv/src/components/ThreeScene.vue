@@ -93,6 +93,7 @@ export default {
         regionStart: null,
         regionEnd: null,
         regionBoundaries: {},
+        previousSplines: {},
         shape: 'line',
         lineWidth: 1,
         color: '',
@@ -106,7 +107,8 @@ export default {
         cameraZoom: 1,
         cameraZoomThreshold: [400, 150, -1],
         cameraZoomResolution: [20000, 60000, 200000],
-        dynamicResolution: false,
+        dynamicResolution: true,
+        dRFunction: null,
         sceneColor: 0x00000,
         screenshot: null,
         showAll: false,
@@ -185,8 +187,21 @@ export default {
         this.params.cameraDistance = this.controls.object.position.distanceTo(
           this.controls.target
         )
-        const fetch = _.debounce(this.dynamicResolution.bind(this), 100)
-        this.controls.addEventListener("change", fetch)
+        this.params.dRFunction = _.debounce(this.dynamicResolution.bind(this), 100)
+        this.controls.addEventListener("change", this.params.dRFunction)
+      }
+    },
+    toggleDynamicResolution() {
+      console.log(this.params.dynamicResolution)
+      if (this.params.dynamicResolution) {
+        this.params.cameraDistance = this.controls.object.position.distanceTo(
+          this.controls.target
+        )
+        this.params.dRFunction = _.debounce(this.dynamicResolution.bind(this), 100)
+        this.controls.addEventListener("change", this.params.dRFunction)
+      } else {
+        console.log(this.params.dRFunction)
+        this.controls.removeEventListener("change", this.params.dRFunction)
       }
     },
     dynamicResolution(e) {
@@ -260,6 +275,10 @@ export default {
         .listen()
         .onChange(e => (this.scene.background = new THREE.Color(e)))
       this.gui
+        .add(this.params, 'dynamicResolution')
+        .name('Dynamic Resolution Change')
+        .onChange(() => this.toggleDynamicResolution())
+      this.gui
         .add(this.params, 'displayLabels')
         .name('Show label')
         .onChange(() => this.toggleLabelDisplay())
@@ -277,7 +296,7 @@ export default {
         highlightFolder
           .add(this.params, 'highlight')
           .name('Highlight')
-          .onChange(() => this.toggleHighlightMode())
+          .onChange(() => this.updateHighlight())
         if (this.params.showAll) {
           highlightFolder.add(this.params, "region", chroms).onChange(() => {
             this.resetHighlightParams()
@@ -288,11 +307,11 @@ export default {
         highlightFolder
           .add(this.params, 'highlightStart', start, end, 1)
           .name('Start')
-          .onChange(() => this.toggleHighlightMode())
+          .onChange(() => this.updateHighlight())
         highlightFolder
           .add(this.params, 'highlightEnd', start, end, 1)
           .name('End')
-          .onChange(() => this.toggleHighlightMode())
+          .onChange(() => this.updateHighlight())
         highlightFolder
           .addColor(this.params, 'highlightColor')
           .listen()
@@ -590,7 +609,7 @@ export default {
         this.updateGui()
       }
     },
-    toggleHighlightMode() {
+    updateHighlight() {
       if (!this.params.highlight) {
         this.params.highlightIndex = null
       }
@@ -852,7 +871,9 @@ export default {
     },
     setMeshesMaterialColor(chrom, color) {
       if (chrom === this.params.region) {
-        for (let [key, material] of Object.entries(this.meshes[chrom].material)) {
+        for (let [key, material] of Object.entries(
+          this.meshes[chrom].material
+        )) {
           //key and this.params.highlightIndex are of different types
           if (key != this.params.highlightIndex) {
             material.color.setStyle(color)
@@ -948,16 +969,30 @@ export default {
         this.clearAllMeshes()
         // show fist model by default
         const chroms = Object.keys(this.splines)
-        // set each chrom color
-        Object.keys(this.splines).forEach(chrom => {
-          const colorKey = `color_${chrom}`
-          const displayKey = `display_${chrom}`
-          this.params[colorKey] = this.splines[chrom].color
-          this.params[displayKey] = true
-
-        })
+        // checks if the chroms are different from before
+        // if chroms are the same, that means new data is from dynamic resolution scaling
+        const previousChroms = Object.keys(this.params.previousSplines)
+        const currChroms = Object.keys(this.splines)
+        if (
+          previousChroms.includes(...currChroms) &&
+          previousChroms.length === currChroms.length
+        ) {
+          for (let [chrom, spline] of Object.entries(this.splines)) {
+            spline.color = this.params.previousSplines[chrom].color
+          }
+        } else {
+          Object.keys(this.splines).forEach(chrom => {
+            // set each chrom color
+            const colorKey = `color_${chrom}`
+            const displayKey = `display_${chrom}`
+            this.params[colorKey] = this.splines[chrom].color
+            this.params[displayKey] = true
+          })
+        }
+        this.params.previousSplines = this.splines
+        
         this.params.region = chroms[0]
-        console.log(this.params.zooming)
+        //console.log(this.params.zooming)
         if (this.params.zooming) {
           this.params.zooming = false
         } else {
