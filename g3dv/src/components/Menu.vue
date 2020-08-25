@@ -131,7 +131,8 @@ export default {
       this.g3d.blob = files[0]
     },
     fillExample() {
-      ;(this.g3d.url = "https://wangftp.wustl.edu/~dli/tmp/test.g3d"),
+      //Old url: https://wangftp.wustl.edu/~dli/tmp/test.g3d
+      ;(this.g3d.url = "https://target.wustl.edu/dli/tmp/test2.g3d"),
         (this.g3d.region = "chr7:27053397-27373765")
       this.setTab("Remote file")
     },

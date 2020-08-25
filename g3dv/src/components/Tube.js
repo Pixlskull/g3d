@@ -24,28 +24,32 @@ function reformatData(data) {
 }
 
 export function getSplines(data) {
-  // console.log('preparing splines...')
-  if (!data.length) {
-    // console.error('error: data for splines is empty')
-    return
-  }
+  // if (!data.length) {
+  //   // console.error('error: data for splines is empty')
+  //   return
+  // }
   const splines = {}
-  const palette = iwanthue(data.length * 2)
-  data.forEach((dat, datIndex) => {
-    const formatted = reformatData(dat.data)
-
-    Object.keys(formatted).forEach((key, keyIndex) => {
-      const tubeData = formatted[key]
-
-      const points = tubeData.map(
-        item => new THREE.Vector3(item[3], item[4], item[5])
-      )
-      // console.log(points.length)
+  const palette = iwanthue(Object.keys(data.maternal).length * 2)
+  let colorCounter = 0
+  for (let [type, chroms] of Object.entries(data)) {
+    //console.log(type, chroms)
+    for (let [chrom, dat] of Object.entries(chroms)) {
+      //console.log(chrom, dat)
+      // const points = _.zip(dat.x, dat.y, dat.z)
+      // console.log(points)
+      const points = []
+      //console.log(dat.x.length)
+      for (let j in dat.x){
+        points[j] = new THREE.Vector3(dat.x[j], dat.y[j], dat.z[j])
+      }
+      //console.log(points)
       const spline = new THREE.CatmullRomCurve3(points)
-      const color = palette[datIndex + keyIndex]
-      splines[`${dat.region}_${key}`] = { spline, color }
-    })
-  })
+      const color = palette[colorCounter]
+      colorCounter++
+      //console.log(`${chrom}_${type}`)
+      splines[`${chrom}_${type}`] = { spline, color }
+    }
+  }
   return splines
 }
 
@@ -73,7 +77,6 @@ export function getHighlightBallMesh(spline, param, chrom) {
   const color = param[colorKey]
   let material;
   const verticesCount = geometry.getIndex().count
-  console.log(verticesCount)
   const totalBP = param.regionEnd - param.regionStart
   //The geometry groups need to start on a multiple of 3 to draw the shapes properly
   const highlightStart =
@@ -264,25 +267,6 @@ export function getHighlightLineMesh(spline, param, chrom) {
   return mesh
 }
 
-// export function getLineMesh(spline, param, chrom) {
-//   const points = spline.getPoints(5000)
-//   const geometry = new THREE.Geometry().setFromPoints(points)
-//   const line = new MeshLine()
-//   line.setGeometry(geometry)
-//   // line.setGeometry(geometry, function() {
-//   //   return 2
-//   // })
-//   console.log(param)
-//   const colorKey = `color_${chrom}`
-//   const color = param[colorKey]
-//   const material = new MeshLineMaterial({
-//     color,
-//     lineWidth: param.lineWidth / 10
-//   })
-//   const mesh = new THREE.Mesh(line.geometry, material) // this syntax could definitely be improved!
-//   return mesh
-// }
-
 export function renderShape(data, scene, param) {
   // console.log('render tube...', param)
   if (!data.length) {
@@ -305,7 +289,6 @@ export function renderShape(data, scene, param) {
       const points = tubeData.map(
         item => new THREE.Vector3(item[3], item[4], item[5])
       )
-      // console.log(points.length)
       const spline = new THREE.CatmullRomCurve3(points)
 
       // const geometry = new THREE.BufferGeometry().setFromPoints(points2)

@@ -19,6 +19,7 @@ import {
 import Stats from 'stats-js'
 import * as dat from 'dat.gui'
 import html2canvas from 'html2canvas'
+import { parseRegionString } from '../helper'
 import _ from "lodash"
 import {
   getSplines,
@@ -819,23 +820,11 @@ export default {
     getHighlightParams(chroms, data) {
       //find the start and end bp for each region
       chroms.forEach(chrom => {
+        let key = chrom.split("_")
         this.params.regionBoundaries[chrom] = {
-          start: Number.POSITIVE_INFINITY,
-          end: Number.NEGATIVE_INFINITY
+          start: data[key[1]][key[0]].start[0],
+          end: data[key[1]][key[0]].start.slice(-1)[0]
         }
-      })
-      data.forEach(chromosome => {
-        chromosome.data.forEach(point => {
-          const chrom = point[0] + "_" + point[6]
-          const start = point[1]
-          const end = point[2]
-          if (start < this.params.regionBoundaries[chrom].start) {
-            this.params.regionBoundaries[chrom].start = start
-          }
-          if (end > this.params.regionBoundaries[chrom].end) {
-            this.params.regionBoundaries[chrom].end = end
-          }
-        })
       })
       this.resetHighlightParams()
     },
@@ -871,7 +860,7 @@ export default {
     },
     setMeshesMaterialColor(chrom, color) {
       if (chrom === this.params.region) {
-        for (let [key, material] of Object.entries(
+        for (const [key, material] of Object.entries(
           this.meshes[chrom].material
         )) {
           //key and this.params.highlightIndex are of different types
@@ -884,7 +873,7 @@ export default {
       }
     },
     setMeshMaterialColor(color) {
-      for (let [key, material] of Object.entries(this.meshMaterial)) {
+      for (const [key, material] of Object.entries(this.meshMaterial)) {
         //key and this.params.highlightIndex are of different types
         if (key != this.params.highlightIndex) {
           material.color.setStyle(color)
@@ -964,23 +953,52 @@ export default {
     data3d(newData, oldData) {
       if (newData !== oldData) {
         // renderShape(newData, this.scene, this.drawParam)
-        this.splines = getSplines(newData)
+        const { region, resolution, regionControl } = this.$store.state.g3d
+        const parsed = parseRegionString(region)
+        let data
+        if (regionControl === 'genome'){
+          data = newData
+        } else {
+          data = {}
+          for (const [type, chroms] of Object.entries(newData)){
+            data[type] = {}
+            for (const [chrom, dat] of Object.entries(chroms)){
+              if (chrom === parsed.chr) {
+                data[type][chrom] = dat
+                if (regionControl === 'region') {
+                  const currChr = data[type][chrom]
+                  const start = _.sortedIndex(currChr.start, parsed.start)
+                  const end = _.sortedLastIndex(currChr.start, parsed.end)
+                  for (const [key, value] of Object.entries(currChr)){
+                    currChr[key] = value.slice(start, end)
+                  }
+                  console.log(data[type])
+                }
+              }
+            }
+          }
+        }
+        this.splines = getSplines(data)
         this.clearSingleMesh()
         this.clearAllMeshes()
-        // show fist model by default
+        // show first model by default
         const chroms = Object.keys(this.splines)
+
         // checks if the chroms are different from before
         // if chroms are the same, that means new data is from dynamic resolution scaling
         const previousChroms = Object.keys(this.params.previousSplines)
         const currChroms = Object.keys(this.splines)
+        console.log(previousChroms, currChroms)
         if (
           previousChroms.includes(...currChroms) &&
           previousChroms.length === currChroms.length
         ) {
-          for (let [chrom, spline] of Object.entries(this.splines)) {
+          console.log("zooming")
+          for (const [chrom, spline] of Object.entries(this.splines)) {
             spline.color = this.params.previousSplines[chrom].color
           }
         } else {
+          console.log("not zooming")
           Object.keys(this.splines).forEach(chrom => {
             // set each chrom color
             const colorKey = `color_${chrom}`
@@ -990,23 +1008,22 @@ export default {
           })
         }
         this.params.previousSplines = this.splines
-        
         this.params.region = chroms[0]
-        //console.log(this.params.zooming)
+
         if (this.params.zooming) {
           this.params.zooming = false
         } else {
           //determines which displayRegion the user selected
-          if (newData.length > 1) {
+          if (regionControl === 'genome') {
             this.params.displayRegion = 'wholeGenome'
-            this.getHighlightParams(chroms, newData)
-          } else if (newData[0].region.includes(':') || newData[0].region.includes('-')) {
+            this.getHighlightParams(chroms, data)
+          } else if (regionControl === 'region') {
             this.params.displayRegion = 'inputRegion'
             this.params.highlight = false
             this.params.highlightIndex = null
           } else {
             this.params.displayRegion = 'wholeChromosome'
-            this.getHighlightParams(chroms, newData)
+            this.getHighlightParams(chroms, data)
           }
         }
         if (this.params.showAll) {

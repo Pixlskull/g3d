@@ -23,7 +23,8 @@ export default new Vuex.Store({
     data3d: [],
     isLoading: false,
     g3dFile: null,
-    stateErrorMsg: null
+    stateErrorMsg: null,
+    region: null
   },
   mutations: {
     SET_G3D(state, g) {
@@ -33,13 +34,17 @@ export default new Vuex.Store({
       state.isLoading = !state.isLoading
     },
     SET_DATA3D(state, data) {
-      Vue.set(state, 'data3d', [...data])
+      console.log(data)
+      Vue.set(state, 'data3d', data)
     },
     SET_G3D_FILE(state, gf) {
       Vue.set(state, 'g3dFile', gf)
     },
     SET_STATE_ERROR_MSG(state, msg) {
       Vue.set(state, 'stateErrorMsg', msg)
+    },
+    SET_REGIONCONTROL(state, regionControl) {
+      Vue.set(state, 'regionControl', regionControl)
     }
   },
   actions: {
@@ -56,28 +61,10 @@ export default new Vuex.Store({
         commit('SET_STATE_ERROR_MSG', parsedRegion.error)
         return
       }
+      commit('SET_REGIONCONTROL', regionControl)
       commit('SET_STATE_ERROR_MSG', null)
       commit('SET_LOADING_STATUS')
-      let data
-      switch (regionControl) {
-        case 'genome':
-          data = await state.g3dFile.readDataGenome(resolution)
-          break
-        case 'chrom':
-          data = await state.g3dFile.readDataChromosome(
-            parsedRegion.chr,
-            resolution
-          )
-          break
-        case 'region':
-        default:
-          data = await state.g3dFile.readData(
-            parsedRegion.chr,
-            parsedRegion.start,
-            parsedRegion.end,
-            resolution
-          )
-      }
+      const data = await state.g3dFile.readData(resolution)
       // const data = await this.state.g3dFile.readDataGenome(200000)
       // const sorted = data.sort(
       //   (a, b) => a[0].localeCompare(b[0]) || a[1] - b[1]
@@ -88,7 +75,7 @@ export default new Vuex.Store({
       commit('SET_LOADING_STATUS')
     },
     async fetchDataDynamicResolution({ commit, state }, resolution) {
-      const { region, regionControl } = state.g3d
+      const { region } = state.g3d
       //console.log(resolution)
       const parsedRegion = parseRegionString(region)
       if (parsedRegion.error) {
@@ -97,32 +84,7 @@ export default new Vuex.Store({
       }
       commit('SET_STATE_ERROR_MSG', null)
       commit('SET_LOADING_STATUS')
-      let data
-      switch (regionControl) {
-        case 'genome':
-          data = await state.g3dFile.readDataGenome(resolution)
-          break
-        case 'chrom':
-          data = await state.g3dFile.readDataChromosome(
-            parsedRegion.chr,
-            resolution
-          )
-          break
-        case 'region':
-        default:
-          data = await state.g3dFile.readData(
-            parsedRegion.chr,
-            parsedRegion.start,
-            parsedRegion.end,
-            resolution
-          )
-      }
-      // const data = await this.state.g3dFile.readDataGenome(200000)
-      // const sorted = data.sort(
-      //   (a, b) => a[0].localeCompare(b[0]) || a[1] - b[1]
-      // )
-      // const pat = sorted.filter(item => item[6] === 'p')
-      // const ensured = ensureMaxListLength(pat, 2000)
+      const data = await state.g3dFile.readData(resolution)
       commit('SET_DATA3D', data)
       commit('SET_LOADING_STATUS')
     }
